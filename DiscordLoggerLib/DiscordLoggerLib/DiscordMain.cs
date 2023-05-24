@@ -74,14 +74,16 @@ namespace DiscordLoggerLib
             if (categoryName == "")
                 categoryName = _defaultCategoryName;
 
-            var category = guild.CategoryChannels.FirstOrDefault(f => f.Name.ToLower() == categoryName.ToLower());
+            CultureInfo culture = new CultureInfo("en-GB");
+
+            var category = guild.CategoryChannels.FirstOrDefault(f => f.Name.Trim().ToLower(culture) == categoryName.Trim().ToLower(culture));
             if (category == null) // there is no category with the name of 'categoryName'
             {
                 ulong categoryId = (await guild.CreateCategoryChannelAsync(categoryName)).Id;
                 category = guild.GetCategoryChannel(categoryId);
             }
 
-            channel = category.Channels.FirstOrDefault(f => f.Name.ToLower() == channelName.ToLower());
+            channel = category.Channels.FirstOrDefault(f => f.Name.Trim().ToLower(culture) == channelName.Trim().ToLower(culture));
 
             if (channel == null) // there is no channel with the name of 'channelName'
             {
