@@ -13,6 +13,7 @@ namespace DiscordLoggerLib.Models
             public string Token { get; set; } = string.Empty;
             public string ServerId { get; set; } = string.Empty;
             public string DefaultCategoryName { get; set; } = string.Empty;
+            public int RetryCountOnFail { get; set; } = 20;
         }
 
         public enum LogType

@@ -22,6 +22,8 @@ namespace DiscordLoggerLib
         private readonly UInt64 _serverId;
         private readonly string _token;
         private readonly string _defaultCategoryName;
+        private readonly int _retryCountOnFail = 20;
+        private TaskCompletionSource<bool> _readySignal;
 
         public DiscordMain(DiscordSocketClient client, ConfigModel config)
         {
@@ -29,8 +31,9 @@ namespace DiscordLoggerLib
             _client = client;
             _serverId = string.IsNullOrEmpty(config.ServerId) ? 0 : Convert.ToUInt64(config.ServerId);
             _defaultCategoryName = config.DefaultCategoryName;
+            _retryCountOnFail = config.RetryCountOnFail;
 
-            StartProcess().Wait();
+            StartProcess().GetAwaiter().GetResult();
         }
 
         private Task Log(LogMessage msg)
@@ -45,9 +48,10 @@ namespace DiscordLoggerLib
             _client.Ready += OnClientReady;
 
             await LoginToBotAsync();
-            await StartBotAsync();
+            _readySignal = new TaskCompletionSource<bool>();
 
-            //await Task.Delay(-1);
+            await StartBotAsync();
+            await _readySignal.Task; // Waiting for client to finish all of it's configurations
         }
 
         private async Task LoginToBotAsync()
@@ -63,6 +67,7 @@ namespace DiscordLoggerLib
         private async Task OnClientReady()
         {
             Console.WriteLine("Bot connected!");
+            _readySignal.SetResult(true);
         }
 
         internal async Task DiscordLog(string message, string channelName, string categoryName = "")
@@ -70,24 +75,33 @@ namespace DiscordLoggerLib
             while (_client.ConnectionState != ConnectionState.Connected) { await Task.Delay(1000); }
 
             SocketGuild guild = _client.GetGuild(_serverId);
+
+            int retryCount = 0;
+            while ((!guild.CategoryChannels.Any() || !guild.TextChannels.Any()) && retryCount < _retryCountOnFail)
+            {
+                await StartProcess();
+                await Task.Delay(500);
+                guild = _client.GetGuild(_serverId);
+                retryCount++;
+            }
+
             SocketGuildChannel? channel = null;
             if (categoryName == "")
                 categoryName = _defaultCategoryName;
 
-            CultureInfo culture = new CultureInfo("en-GB");
-
-            var category = guild.CategoryChannels.FirstOrDefault(f => f.Name.Trim().ToLower(culture) == categoryName.Trim().ToLower(culture));
+            var category = guild.CategoryChannels.FirstOrDefault(f => string.Compare(f.Name.Trim(), categoryName.Trim(), StringComparison.OrdinalIgnoreCase) == 0);
             if (category == null) // there is no category with the name of 'categoryName'
             {
                 ulong categoryId = (await guild.CreateCategoryChannelAsync(categoryName)).Id;
                 category = guild.GetCategoryChannel(categoryId);
             }
 
-            channel = category.Channels.FirstOrDefault(f => f.Name.Trim().ToLower(culture) == channelName.Trim().ToLower(culture));
+            channel = category.Channels.FirstOrDefault(f => string.Compare(f.Name.Trim(), channelName.Trim(), StringComparison.OrdinalIgnoreCase) == 0);
 
             if (channel == null) // there is no channel with the name of 'channelName'
             {
                 // create the channel
+                //Discord.Rest.RestTextChannel? newChannel = await guild.CreateTextChannelAsync(channelName, options => options.CategoryId = category.Id);
                 Discord.Rest.RestTextChannel? newChannel = await guild.CreateTextChannelAsync(channelName, options => options.CategoryId = category.Id);
                 channel = guild.GetChannel(newChannel.Id);
             }
@@ -96,4 +110,5 @@ namespace DiscordLoggerLib
             if (messageChannel != null) await messageChannel.SendMessageAsync(message);
         }
     }
+}
 }
